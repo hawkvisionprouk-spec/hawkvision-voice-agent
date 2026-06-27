@@ -41,12 +41,13 @@ app.post('/incoming-call', (req, res) => {
 
 wss.on('connection', (twilioWs) => {
   console.log('Twilio connected');
+
   let openAiWs = null;
   let streamSid = null;
 
   const openAiConnect = () => {
     openAiWs = new WebSocket(
-      'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01',
+      'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview',
       {
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
