@@ -46,6 +46,7 @@ wss.on('connection', (twilioWs) => {
   let streamSid = null;
 
   const openAiConnect = () => {
+    console.log('Connecting to OpenAI...');
     openAiWs = new WebSocket(
       'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview',
       {
@@ -73,33 +74,52 @@ wss.on('connection', (twilioWs) => {
     });
 
     openAiWs.on('message', (data) => {
-      const event = JSON.parse(data);
-      if (event.type === 'response.audio.delta' && event.delta) {
-        const audioPayload = {
-          event: 'media',
-          streamSid,
-          media: { payload: event.delta },
-        };
-        twilioWs.send(JSON.stringify(audioPayload));
+      try {
+        const event = JSON.parse(data);
+        console.log('OpenAI event:', event.type);
+        if (event.type === 'error') {
+          console.error('OpenAI error event:', JSON.stringify(event));
+        }
+        if (event.type === 'response.audio.delta' && event.delta) {
+          const audioPayload = {
+            event: 'media',
+            streamSid,
+            media: { payload: event.delta },
+          };
+          twilioWs.send(JSON.stringify(audioPayload));
+        }
+      } catch (e) {
+        console.error('Failed to parse OpenAI message:', e);
       }
     });
 
-    openAiWs.on('error', (err) => console.error('OpenAI WS error:', err));
-    openAiWs.on('close', () => console.log('OpenAI disconnected'));
+    openAiWs.on('error', (err) => {
+      console.error('OpenAI WS error:', err.message, JSON.stringify(err));
+    });
+
+    openAiWs.on('close', (code, reason) => {
+      console.log('OpenAI disconnected - code:', code, 'reason:', reason.toString());
+    });
   };
 
   twilioWs.on('message', (message) => {
-    const data = JSON.parse(message);
-    if (data.event === 'start') {
-      streamSid = data.start.streamSid;
-      openAiConnect();
-    } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN) {
-      openAiWs.send(JSON.stringify({
-        type: 'input_audio_buffer.append',
-        audio: data.media.payload,
-      }));
-    } else if (data.event === 'stop') {
-      openAiWs?.close();
+    try {
+      const data = JSON.parse(message);
+      if (data.event === 'start') {
+        streamSid = data.start.streamSid;
+        console.log('Stream started, SID:', streamSid);
+        openAiConnect();
+      } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN) {
+        openAiWs.send(JSON.stringify({
+          type: 'input_audio_buffer.append',
+          audio: data.media.payload,
+        }));
+      } else if (data.event === 'stop') {
+        console.log('Stream stopped');
+        openAiWs?.close();
+      }
+    } catch (e) {
+      console.error('Failed to parse Twilio message:', e);
     }
   });
 
