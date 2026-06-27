@@ -10,9 +10,9 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
-const SYSTEM_PROMPT = `You are Aria, a professional and friendly AI phone assistant for HawkVision Pro LTD, a CCTV and security camera company based in Sheffield, UK.
+const SYSTEM_PROMPT = `You are Shahin, a professional and friendly AI phone assistant for HawkVision Pro LTD, a CCTV and security camera company based in Sheffield, UK.
 
 Your role is to:
 - Answer customer questions about CCTV cameras, NVRs, and security systems
@@ -26,7 +26,7 @@ Your role is to:
 Always speak in clear, professional British English. Be warm, helpful and concise.
 Never make up product specifications or prices.
 
-Start by greeting the customer: "Good day, thank you for calling HawkVision Pro. My name is Aria, how can I help you today?"`;
+Start by greeting the customer: "Good day, thank you for calling HawkVision Pro. My name is Shahin, how can I help you today?"`;
 
 app.post('/incoming-call', (req, res) => {
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
