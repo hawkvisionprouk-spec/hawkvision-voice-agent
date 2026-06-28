@@ -47,9 +47,11 @@ wss.on('connection', (twilioWs) => {
   let isSpeaking = false;
   let silenceTimer = null;
   let hasGreeted = false;
+  let greetingDone = false;
   let interruptCount = 0;
 
   const SILENCE_THRESHOLD = 1500;
+  const INTERRUPT_THRESHOLD = 20;
 
   const triggerResponse = () => {
     if (openAiWs?.readyState === WebSocket.OPEN && !isSpeaking) {
@@ -100,7 +102,6 @@ wss.on('connection', (twilioWs) => {
           console.error('OpenAI error:', JSON.stringify(event));
         }
 
-        // بعد از session.updated، greeting بفرست
         if (event.type === 'session.updated' && !hasGreeted) {
           hasGreeted = true;
           console.log('Sending greeting...');
@@ -126,6 +127,8 @@ wss.on('connection', (twilioWs) => {
 
         if (event.type === 'response.done') {
           isSpeaking = false;
+          greetingDone = true;
+          interruptCount = 0;
           if (openAiWs?.readyState === WebSocket.OPEN) {
             openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
           }
@@ -149,9 +152,9 @@ wss.on('connection', (twilioWs) => {
         openAiConnect();
       } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN) {
 
-        if (isSpeaking) {
+        if (isSpeaking && greetingDone) {
           interruptCount++;
-          if (interruptCount > 5) {
+          if (interruptCount > INTERRUPT_THRESHOLD) {
             console.log('User interrupted Shahin');
             isSpeaking = false;
             interruptCount = 0;
@@ -162,15 +165,17 @@ wss.on('connection', (twilioWs) => {
           return;
         }
 
-        openAiWs.send(JSON.stringify({
-          type: 'input_audio_buffer.append',
-          audio: data.media.payload,
-        }));
+        if (!isSpeaking) {
+          openAiWs.send(JSON.stringify({
+            type: 'input_audio_buffer.append',
+            audio: data.media.payload,
+          }));
 
-        if (silenceTimer) clearTimeout(silenceTimer);
-        silenceTimer = setTimeout(() => {
-          triggerResponse();
-        }, SILENCE_THRESHOLD);
+          if (silenceTimer) clearTimeout(silenceTimer);
+          silenceTimer = setTimeout(() => {
+            triggerResponse();
+          }, SILENCE_THRESHOLD);
+        }
 
       } else if (data.event === 'stop') {
         if (silenceTimer) clearTimeout(silenceTimer);
