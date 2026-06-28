@@ -45,6 +45,7 @@ wss.on('connection', (twilioWs) => {
   let openAiWs = null;
   let streamSid = null;
   let isSpeaking = false;
+  let audioBuffer = [];
 
   const openAiConnect = () => {
     console.log('Connecting to OpenAI...');
@@ -69,12 +70,7 @@ wss.on('connection', (twilioWs) => {
           audio: {
             input: {
               format: { type: 'audio/pcmu' },
-              turn_detection: {
-                type: 'server_vad',
-                threshold: 0.9,
-                prefix_padding_ms: 300,
-                silence_duration_ms: 700
-              }
+              turn_detection: { type: 'semantic_vad', eagerness: 'medium' }
             },
             output: {
               format: { type: 'audio/pcmu' },
@@ -88,26 +84,51 @@ wss.on('connection', (twilioWs) => {
     openAiWs.on('message', (data) => {
       try {
         const event = JSON.parse(data);
+
         if (event.type === 'error') {
           console.error('OpenAI error:', JSON.stringify(event));
         }
-        if (event.type === 'response.output_audio.delta' && event.delta) {
+
+        // وقتی OpenAI شروع به جواب دادن میکنه
+        if (event.type === 'response.created') {
           isSpeaking = true;
+          audioBuffer = [];
+        }
+
+        // ارسال صدا به Twilio
+        if (event.type === 'response.output_audio.delta' && event.delta) {
+          audioBuffer.push(event.delta);
           twilioWs.send(JSON.stringify({
             event: 'media',
             streamSid,
             media: { payload: event.delta },
           }));
         }
-        if (event.type === 'response.output_audio.done') {
+
+        // وقتی جواب تموم شد
+        if (event.type === 'response.done') {
           isSpeaking = false;
-          // Clear any buffered input that accumulated while speaking
+          audioBuffer = [];
+          // clear buffer تا صدای خودش رو نشنوه
           if (openAiWs?.readyState === WebSocket.OPEN) {
-            openAiWs.send(JSON.stringify({
-              type: 'input_audio_buffer.clear'
-            }));
+            openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
           }
         }
+
+        // اگه کاربر وسط حرف Shahin حرف زد — قطع کن
+        if (event.type === 'input_audio_buffer.speech_started' && isSpeaking) {
+          console.log('User interrupted Shahin');
+          isSpeaking = false;
+          audioBuffer = [];
+          // قطع کردن response فعلی
+          if (openAiWs?.readyState === WebSocket.OPEN) {
+            openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
+            openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
+          }
+          // قطع کردن صدای Twilio
+          twilioWs.send(JSON.stringify({ event: 'clear', streamSid }));
+        }
+
       } catch (e) {
         console.error('Parse error:', e);
       }
@@ -124,11 +145,13 @@ wss.on('connection', (twilioWs) => {
         streamSid = data.start.streamSid;
         console.log('Stream started:', streamSid);
         openAiConnect();
-      } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN && !isSpeaking) {
-        openAiWs.send(JSON.stringify({
-          type: 'input_audio_buffer.append',
-          audio: data.media.payload,
-        }));
+      } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN) {
+        if (!isSpeaking) {
+          openAiWs.send(JSON.stringify({
+            type: 'input_audio_buffer.append',
+            audio: data.media.payload,
+          }));
+        }
       } else if (data.event === 'stop') {
         openAiWs?.close();
       }
