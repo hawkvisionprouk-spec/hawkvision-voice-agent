@@ -12,19 +12,19 @@ app.use(express.json());
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PORT = process.env.PORT || 8080;
 
-const SYSTEM_PROMPT = `You are Shahin, a professional and friendly AI phone assistant for HawkVision Pro LTD, a CCTV and security camera company based in Sheffield, UK.
+const SYSTEM_PROMPT = `You are the sales assistant for HawkVision Pro, a CCTV and security camera company based in Sheffield, UK. Your mission is to deliver a professional, consultancy-style conversation, not a robotic script.
 
-Your role is to:
-- Answer customer questions about CCTV cameras, NVRs, and security systems
-- Help customers choose the right products for their needs
-- Provide information about ANNKE products, installation, warranty, delivery, and returns
-- Collect customer details for follow-up (name, address, number of cameras needed, budget)
-- Always ask for the exact model number before giving technical advice
-- Ask if the customer has WhatsApp to send product details after the call
-- If you don't know something, say you will check and call back rather than guessing
+Start by listening to the customer's needs. Ask about the installation environment, number of cameras, budget, and specific goals. Recommend the best fit options based on those needs.
 
-Always speak in clear, professional British English. Be warm, helpful and concise.
-Never make up product specifications or prices.
+Give clear, simple explanations of the models, always honest about pros and cons, and never pressure them. If you don't know something, say you don't know and offer to check.
+
+When asked for links or images, offer to send them through WhatsApp so the customer can review them.
+
+If the customer asks about competitors, respond fairly and factually. Emphasise stock availability, fast delivery, and that choosing the right model is the priority.
+
+When the customer asks to buy, confirm payment, delivery address and lead time, then summarise the order clearly for confirmation.
+
+Tone is calm, respectful and helpful. Never sound like a robot. Always speak with confidence and warmth.
 
 Start by greeting the customer: "Good day, thank you for calling HawkVision Pro. My name is Shahin, how can I help you today?"`;
 
@@ -48,13 +48,13 @@ wss.on('connection', (twilioWs) => {
   let silenceTimer = null;
   let greetingDone = false;
   let interruptCount = 0;
-  let sessionReady = false;
 
-  const SILENCE_THRESHOLD = 1500;
+  const SILENCE_THRESHOLD = 1200;
   const INTERRUPT_THRESHOLD = 20;
 
   const triggerResponse = () => {
     if (openAiWs?.readyState === WebSocket.OPEN && !isSpeaking) {
+      console.log('Triggering response...');
       openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
       openAiWs.send(JSON.stringify({ type: 'response.create' }));
     }
@@ -104,7 +104,6 @@ wss.on('connection', (twilioWs) => {
         }
 
         if (event.type === 'session.updated') {
-          sessionReady = true;
           console.log('Session ready, sending greeting...');
           openAiWs.send(JSON.stringify({
             type: 'conversation.item.create',
@@ -131,6 +130,7 @@ wss.on('connection', (twilioWs) => {
         }
 
         if (event.type === 'response.done') {
+          console.log('Response done, greetingDone:', greetingDone);
           isSpeaking = false;
           greetingDone = true;
           interruptCount = 0;
@@ -151,16 +151,19 @@ wss.on('connection', (twilioWs) => {
   twilioWs.on('message', (message) => {
     try {
       const data = JSON.parse(message);
+
       if (data.event === 'start') {
         streamSid = data.start.streamSid;
         console.log('Stream started:', streamSid);
         openAiConnect();
-      } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN && sessionReady) {
 
+      } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN) {
+
+        // interrupt
         if (isSpeaking && greetingDone) {
           interruptCount++;
           if (interruptCount > INTERRUPT_THRESHOLD) {
-            console.log('User interrupted Shahin');
+            console.log('User interrupted');
             isSpeaking = false;
             interruptCount = 0;
             openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
@@ -170,12 +173,14 @@ wss.on('connection', (twilioWs) => {
           return;
         }
 
-        if (!isSpeaking) {
-          openAiWs.send(JSON.stringify({
-            type: 'input_audio_buffer.append',
-            audio: data.media.payload,
-          }));
+        // همیشه audio رو بفرست — حتی قبل از greeting
+        openAiWs.send(JSON.stringify({
+          type: 'input_audio_buffer.append',
+          audio: data.media.payload,
+        }));
 
+        // silence timer فقط بعد از greeting
+        if (greetingDone && !isSpeaking) {
           if (silenceTimer) clearTimeout(silenceTimer);
           silenceTimer = setTimeout(() => {
             triggerResponse();
@@ -186,6 +191,7 @@ wss.on('connection', (twilioWs) => {
         if (silenceTimer) clearTimeout(silenceTimer);
         openAiWs?.close();
       }
+
     } catch (e) {
       console.error('Twilio parse error:', e);
     }
