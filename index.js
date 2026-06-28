@@ -61,12 +61,20 @@ wss.on('connection', (twilioWs) => {
       openAiWs.send(JSON.stringify({
         type: 'session.update',
         session: {
-          input_audio_format: 'g711_ulaw',
-          output_audio_format: 'g711_ulaw',
-          voice: 'alloy',
+          type: 'realtime',
+          model: 'gpt-realtime-2',
           instructions: SYSTEM_PROMPT,
-          modalities: ['text', 'audio'],
-          temperature: 0.8,
+          output_modalities: ['audio'],
+          audio: {
+            input: {
+              format: { type: 'audio/g711-ulaw', rate: 8000 },
+              turn_detection: { type: 'semantic_vad' }
+            },
+            output: {
+              format: { type: 'audio/g711-ulaw', rate: 8000 },
+              voice: 'alloy'
+            }
+          }
         },
       }));
     });
