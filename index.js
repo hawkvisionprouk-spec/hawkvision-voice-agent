@@ -86,7 +86,7 @@ wss.on('connection', (twilioWs) => {
         if (event.type === 'error') {
           console.error('OpenAI error event:', JSON.stringify(event));
         }
-        if (event.type === 'response.audio.delta' && event.delta) {
+        if (event.type === 'response.output_audio.delta' && event.delta) {
           const audioPayload = {
             event: 'media',
             streamSid,
