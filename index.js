@@ -44,6 +44,7 @@ wss.on('connection', (twilioWs) => {
 
   let openAiWs = null;
   let streamSid = null;
+  let isSpeaking = false;
 
   const openAiConnect = () => {
     console.log('Connecting to OpenAI...');
@@ -68,7 +69,12 @@ wss.on('connection', (twilioWs) => {
           audio: {
             input: {
               format: { type: 'audio/pcmu' },
-              turn_detection: { type: 'semantic_vad' }
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.9,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 700
+              }
             },
             output: {
               format: { type: 'audio/pcmu' },
@@ -82,30 +88,33 @@ wss.on('connection', (twilioWs) => {
     openAiWs.on('message', (data) => {
       try {
         const event = JSON.parse(data);
-        console.log('OpenAI event:', event.type);
         if (event.type === 'error') {
-          console.error('OpenAI error event:', JSON.stringify(event));
+          console.error('OpenAI error:', JSON.stringify(event));
         }
         if (event.type === 'response.output_audio.delta' && event.delta) {
-          const audioPayload = {
+          isSpeaking = true;
+          twilioWs.send(JSON.stringify({
             event: 'media',
             streamSid,
             media: { payload: event.delta },
-          };
-          twilioWs.send(JSON.stringify(audioPayload));
+          }));
+        }
+        if (event.type === 'response.output_audio.done') {
+          isSpeaking = false;
+          // Clear any buffered input that accumulated while speaking
+          if (openAiWs?.readyState === WebSocket.OPEN) {
+            openAiWs.send(JSON.stringify({
+              type: 'input_audio_buffer.clear'
+            }));
+          }
         }
       } catch (e) {
-        console.error('Failed to parse OpenAI message:', e);
+        console.error('Parse error:', e);
       }
     });
 
-    openAiWs.on('error', (err) => {
-      console.error('OpenAI WS error:', err.message, JSON.stringify(err));
-    });
-
-    openAiWs.on('close', (code, reason) => {
-      console.log('OpenAI disconnected - code:', code, 'reason:', reason.toString());
-    });
+    openAiWs.on('error', (err) => console.error('OpenAI WS error:', err.message));
+    openAiWs.on('close', (code, reason) => console.log('OpenAI disconnected:', code, reason.toString()));
   };
 
   twilioWs.on('message', (message) => {
@@ -113,19 +122,18 @@ wss.on('connection', (twilioWs) => {
       const data = JSON.parse(message);
       if (data.event === 'start') {
         streamSid = data.start.streamSid;
-        console.log('Stream started, SID:', streamSid);
+        console.log('Stream started:', streamSid);
         openAiConnect();
-      } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN) {
+      } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN && !isSpeaking) {
         openAiWs.send(JSON.stringify({
           type: 'input_audio_buffer.append',
           audio: data.media.payload,
         }));
       } else if (data.event === 'stop') {
-        console.log('Stream stopped');
         openAiWs?.close();
       }
     } catch (e) {
-      console.error('Failed to parse Twilio message:', e);
+      console.error('Twilio parse error:', e);
     }
   });
 
