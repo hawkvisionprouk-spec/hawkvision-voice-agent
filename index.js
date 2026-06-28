@@ -67,11 +67,11 @@ wss.on('connection', (twilioWs) => {
           output_modalities: ['audio'],
           audio: {
             input: {
-              format: { type: 'audio/g711-ulaw', rate: 8000 },
+              format: { type: 'audio/pcmu', rate: 8000 },
               turn_detection: { type: 'semantic_vad' }
             },
             output: {
-              format: { type: 'audio/g711-ulaw', rate: 8000 },
+              format: { type: 'audio/pcmu', rate: 8000 },
               voice: 'alloy'
             }
           }
