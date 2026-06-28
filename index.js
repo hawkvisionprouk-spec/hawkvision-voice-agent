@@ -45,16 +45,16 @@ wss.on('connection', (twilioWs) => {
   let openAiWs = null;
   let streamSid = null;
   let isSpeaking = false;
-  let speakingEndTimer = null;
+  let silenceTimer = null;
+  let hasGreeted = false;
+  let interruptCount = 0;
 
-  const clearSpeakingState = () => {
-    isSpeaking = false;
-    if (speakingEndTimer) {
-      clearTimeout(speakingEndTimer);
-      speakingEndTimer = null;
-    }
-    if (openAiWs?.readyState === WebSocket.OPEN) {
-      openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
+  const SILENCE_THRESHOLD = 1500;
+
+  const triggerResponse = () => {
+    if (openAiWs?.readyState === WebSocket.OPEN && !isSpeaking) {
+      openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+      openAiWs.send(JSON.stringify({ type: 'response.create' }));
     }
   };
 
@@ -81,7 +81,7 @@ wss.on('connection', (twilioWs) => {
           audio: {
             input: {
               format: { type: 'audio/pcmu' },
-              turn_detection: { type: 'semantic_vad', eagerness: 'low' }
+              turn_detection: null
             },
             output: {
               format: { type: 'audio/pcmu' },
@@ -100,9 +100,20 @@ wss.on('connection', (twilioWs) => {
           console.error('OpenAI error:', JSON.stringify(event));
         }
 
+        // بعد از session.updated، greeting بفرست
+        if (event.type === 'session.updated' && !hasGreeted) {
+          hasGreeted = true;
+          console.log('Sending greeting...');
+          setTimeout(() => {
+            if (openAiWs?.readyState === WebSocket.OPEN) {
+              openAiWs.send(JSON.stringify({ type: 'response.create' }));
+            }
+          }, 300);
+        }
+
         if (event.type === 'response.created') {
           isSpeaking = true;
-          console.log('Shahin started speaking');
+          interruptCount = 0;
         }
 
         if (event.type === 'response.output_audio.delta' && event.delta) {
@@ -114,11 +125,10 @@ wss.on('connection', (twilioWs) => {
         }
 
         if (event.type === 'response.done') {
-          console.log('Shahin finished speaking');
-          // صبر کن ۱ ثانیه بعد از تموم شدن حرف، buffer رو clear کن
-          speakingEndTimer = setTimeout(() => {
-            clearSpeakingState();
-          }, 1000);
+          isSpeaking = false;
+          if (openAiWs?.readyState === WebSocket.OPEN) {
+            openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
+          }
         }
 
       } catch (e) {
@@ -138,14 +148,32 @@ wss.on('connection', (twilioWs) => {
         console.log('Stream started:', streamSid);
         openAiConnect();
       } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN) {
-        // فقط وقتی Shahin ساکته، صدا بفرست
-        if (!isSpeaking) {
-          openAiWs.send(JSON.stringify({
-            type: 'input_audio_buffer.append',
-            audio: data.media.payload,
-          }));
+
+        if (isSpeaking) {
+          interruptCount++;
+          if (interruptCount > 5) {
+            console.log('User interrupted Shahin');
+            isSpeaking = false;
+            interruptCount = 0;
+            openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
+            openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
+            twilioWs.send(JSON.stringify({ event: 'clear', streamSid }));
+          }
+          return;
         }
+
+        openAiWs.send(JSON.stringify({
+          type: 'input_audio_buffer.append',
+          audio: data.media.payload,
+        }));
+
+        if (silenceTimer) clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+          triggerResponse();
+        }, SILENCE_THRESHOLD);
+
       } else if (data.event === 'stop') {
+        if (silenceTimer) clearTimeout(silenceTimer);
         openAiWs?.close();
       }
     } catch (e) {
@@ -154,7 +182,7 @@ wss.on('connection', (twilioWs) => {
   });
 
   twilioWs.on('close', () => {
-    if (speakingEndTimer) clearTimeout(speakingEndTimer);
+    if (silenceTimer) clearTimeout(silenceTimer);
     openAiWs?.close();
     console.log('Twilio disconnected');
   });
