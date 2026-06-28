@@ -46,9 +46,9 @@ wss.on('connection', (twilioWs) => {
   let streamSid = null;
   let isSpeaking = false;
   let silenceTimer = null;
-  let hasGreeted = false;
   let greetingDone = false;
   let interruptCount = 0;
+  let sessionReady = false;
 
   const SILENCE_THRESHOLD = 1500;
   const INTERRUPT_THRESHOLD = 20;
@@ -97,19 +97,24 @@ wss.on('connection', (twilioWs) => {
     openAiWs.on('message', (data) => {
       try {
         const event = JSON.parse(data);
+        console.log('OpenAI event:', event.type);
 
         if (event.type === 'error') {
           console.error('OpenAI error:', JSON.stringify(event));
         }
 
-        if (event.type === 'session.updated' && !hasGreeted) {
-          hasGreeted = true;
-          console.log('Sending greeting...');
-          setTimeout(() => {
-            if (openAiWs?.readyState === WebSocket.OPEN) {
-              openAiWs.send(JSON.stringify({ type: 'response.create' }));
+        if (event.type === 'session.updated') {
+          sessionReady = true;
+          console.log('Session ready, sending greeting...');
+          openAiWs.send(JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'Hello' }]
             }
-          }, 300);
+          }));
+          openAiWs.send(JSON.stringify({ type: 'response.create' }));
         }
 
         if (event.type === 'response.created') {
@@ -150,7 +155,7 @@ wss.on('connection', (twilioWs) => {
         streamSid = data.start.streamSid;
         console.log('Stream started:', streamSid);
         openAiConnect();
-      } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN) {
+      } else if (data.event === 'media' && openAiWs?.readyState === WebSocket.OPEN && sessionReady) {
 
         if (isSpeaking && greetingDone) {
           interruptCount++;
