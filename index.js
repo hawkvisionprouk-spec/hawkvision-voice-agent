@@ -48,7 +48,7 @@ wss.on('connection', (twilioWs) => {
   const openAiConnect = () => {
     console.log('Connecting to OpenAI...');
     openAiWs = new WebSocket(
-      'wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview',
+      'wss://api.openai.com/v1/realtime?model=gpt-realtime-2',
       {
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
