@@ -105,48 +105,54 @@ app.post('/voice/respond', async (req, res) => {
     }
   }
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-3.5-turbo',
-    messages: session.messages,
-    max_tokens: 100
-  });
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-5.4-mini',
+      messages: session.messages,
+      max_tokens: 100
+    });
 
-  const aiResponse = completion.choices[0].message.content;
-  session.messages.push({ role: 'assistant', content: aiResponse });
+    const aiResponse = completion.choices[0].message.content;
+    session.messages.push({ role: 'assistant', content: aiResponse });
 
-  if (aiResponse.includes('[SEND_WHATSAPP]')) {
-    const cleanResponse = aiResponse.replace('[SEND_WHATSAPP]', '').trim();
-    twiml.say({ voice: 'Polly.Brian' }, cleanResponse);
-    const products = await searchShopify(speechResult);
-    let waMsg = '🦅 Hawk Vision Pro - Products for you:\n\n';
-    if (products.length > 0) {
-      products.forEach((p, i) => {
-        waMsg += `${i + 1}. ${p.title}\n💷 £${p.price}\n${p.url}\n\n`;
+    if (aiResponse.includes('[SEND_WHATSAPP]')) {
+      const cleanResponse = aiResponse.replace('[SEND_WHATSAPP]', '').trim();
+      twiml.say({ voice: 'Polly.Brian' }, cleanResponse);
+      const products = await searchShopify(speechResult);
+      let waMsg = '🦅 Hawk Vision Pro - Products for you:\n\n';
+      if (products.length > 0) {
+        products.forEach((p, i) => {
+          waMsg += `${i + 1}. ${p.title}\n💷 £${p.price}\n${p.url}\n\n`;
+        });
+      } else {
+        waMsg += 'Visit us: https://hawkvisionpro.co.uk';
+      }
+      await sendWhatsApp(session.caller, waMsg);
+      twiml.gather({
+        input: 'speech',
+        action: '/voice/respond',
+        method: 'POST',
+        speechTimeout: 'auto',
+        language: 'en-GB'
       });
+    } else if (aiResponse.includes('[END_CALL]')) {
+      const cleanResponse = aiResponse.replace('[END_CALL]', '').trim();
+      twiml.say({ voice: 'Polly.Brian' }, cleanResponse);
+      twiml.hangup();
     } else {
-      waMsg += 'Visit us: https://hawkvisionpro.co.uk';
+      twiml.say({ voice: 'Polly.Brian' }, aiResponse);
+      twiml.gather({
+        input: 'speech',
+        action: '/voice/respond',
+        method: 'POST',
+        speechTimeout: 'auto',
+        language: 'en-GB'
+      });
     }
-    await sendWhatsApp(session.caller, waMsg);
-    twiml.gather({
-      input: 'speech',
-      action: '/voice/respond',
-      method: 'POST',
-      speechTimeout: 'auto',
-      language: 'en-GB'
-    });
-  } else if (aiResponse.includes('[END_CALL]')) {
-    const cleanResponse = aiResponse.replace('[END_CALL]', '').trim();
-    twiml.say({ voice: 'Polly.Brian' }, cleanResponse);
+  } catch (err) {
+    console.error('OpenAI error:', err.message);
+    twiml.say({ voice: 'Polly.Brian' }, 'Sorry, I am having a technical issue. Please call again. Goodbye.');
     twiml.hangup();
-  } else {
-    twiml.say({ voice: 'Polly.Brian' }, aiResponse);
-    twiml.gather({
-      input: 'speech',
-      action: '/voice/respond',
-      method: 'POST',
-      speechTimeout: 'auto',
-      language: 'en-GB'
-    });
   }
 
   res.type('text/xml');
