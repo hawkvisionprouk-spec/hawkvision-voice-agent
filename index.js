@@ -32,9 +32,16 @@ app.post('/hawk-action', async (req, res) => {
            req.body?.customer?.number ||
            req.body?.phoneNumber;
     }
-    if (to && !to.startsWith('+')) {
-      to = '+44' + to.replace(/^0/, '');
+
+    // Clean and format number
+    if (to) {
+      to = to.replace(/[\s\(\)\-]/g, '');
+      if (!to.startsWith('+')) {
+        to = '+44' + to.replace(/^0/, '');
+      }
     }
+
+    console.log('Action:', action, '| To:', to);
 
     // SEND WHATSAPP
     if (action === 'send_whatsapp') {
@@ -86,7 +93,7 @@ app.post('/hawk-action', async (req, res) => {
       const msgLines = products.map(p =>
         `*${p.title}*\nPrice: £${p.variants[0]?.price}\nhttps://hawkvisionpro.co.uk/products/${p.handle}`
       );
-      const msgBody = `Here are the products from Hawk Vision Pro:\n\n${msgLines.join('\n\n')}`;
+      const msgBody = `🦅 Hawk Vision Pro:\n\n${msgLines.join('\n\n')}`;
       const result = await client.messages.create({
         from: TWILIO_WHATSAPP_FROM,
         to: `whatsapp:${to}`,
