@@ -21,22 +21,32 @@ app.get('/', (req, res) => {
   res.send('HawkVision Pro - Voice Agent Service Running');
 });
 
-// Combined tool — search Shopify and optionally send WhatsApp
 app.post('/hawk-action', async (req, res) => {
   try {
-    const { action, query, to, message, mediaUrl } = req.body;
+    const { action, query, message, mediaUrl } = req.body;
+
+    // Caller ID — automatic
+    let to = req.body.to;
+    if (!to) {
+      to = req.body?.call?.customer?.number ||
+           req.body?.customer?.number ||
+           req.body?.phoneNumber;
+    }
+    if (to && !to.startsWith('+')) {
+      to = '+44' + to.replace(/^0/, '');
+    }
 
     // SEND WHATSAPP
     if (action === 'send_whatsapp') {
-      if (!to || !message) return res.status(400).json({ error: 'Missing to or message' });
+      if (!to) return res.status(400).json({ error: 'No phone number available' });
       const msgOptions = {
         from: TWILIO_WHATSAPP_FROM,
         to: `whatsapp:${to}`,
-        body: message
+        body: message || 'Hello from Hawk Vision Pro!'
       };
       if (mediaUrl) msgOptions.mediaUrl = [mediaUrl];
       const result = await client.messages.create(msgOptions);
-      return res.json({ success: true, sid: result.sid });
+      return res.json({ success: true, sid: result.sid, sentTo: to });
     }
 
     // SEARCH SHOPIFY
@@ -59,9 +69,10 @@ app.post('/hawk-action', async (req, res) => {
       return res.json({ products });
     }
 
-    // SEARCH AND SEND — search Shopify then auto-send WhatsApp
+    // SEARCH AND SEND
     if (action === 'search_and_send') {
-      if (!query || !to) return res.status(400).json({ error: 'Missing query or to' });
+      if (!to) return res.status(400).json({ error: 'No phone number available' });
+      if (!query) return res.status(400).json({ error: 'Missing query' });
       const url = `https://${SHOPIFY_STORE}/admin/api/2026-04/products.json?title=${encodeURIComponent(query)}&limit=3`;
       const response = await fetch(url, {
         headers: {
@@ -81,7 +92,22 @@ app.post('/hawk-action', async (req, res) => {
         to: `whatsapp:${to}`,
         body: msgBody
       });
-      return res.json({ success: true, sid: result.sid, products: products.map(p => p.title) });
+      return res.json({ success: true, sid: result.sid, products: products.map(p => p.title), sentTo: to });
+    }
+
+    // GET SITE INFO
+    if (action === 'get_site_info') {
+      return res.json({
+        success: true,
+        info: {
+          name: 'Hawk Vision Pro',
+          website: 'hawkvisionpro.co.uk',
+          phone: '+44 114 697 6788',
+          location: 'Sheffield, UK',
+          description: 'Authorised ANNKE CCTV distributor',
+          services: ['CCTV systems', 'security cameras', 'installation advice', 'technical support']
+        }
+      });
     }
 
     res.status(400).json({ error: 'Unknown action' });
