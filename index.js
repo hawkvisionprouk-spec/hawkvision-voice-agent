@@ -14,7 +14,11 @@ const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const SHOPIFY_STORE = 'dncs2t-8m.myshopify.com';
 const PORT = process.env.PORT || 8080;
 
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+const openai = new OpenAI({ 
+  apiKey: OPENAI_API_KEY,
+  timeout: 8000,
+  maxRetries: 2
+});
 const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
 const callSessions = {};
@@ -107,9 +111,9 @@ app.post('/voice/respond', async (req, res) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini-2026-03-17',
+      model: 'gpt-4o-mini',
       messages: session.messages,
-      max_completion_tokens: 100
+      max_tokens: 100
     });
 
     const aiResponse = completion.choices[0].message.content;
