@@ -107,7 +107,7 @@ app.post('/voice/respond', async (req, res) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini',
+      model: 'gpt-5.4-mini-2026-03-17',
       messages: session.messages,
       max_tokens: 100
     });
